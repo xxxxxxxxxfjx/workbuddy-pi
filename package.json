@@ -1,0 +1,17 @@
+{
+  "name": "wb2api-pi",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "把 WatchBuddy2API 反代注册成 pi 的模型提供商（provider id: wb2api，OpenAI 兼容协议）",
+  "keywords": [
+    "pi-package",
+    "wb2api",
+    "openai-compatible"
+  ],
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
