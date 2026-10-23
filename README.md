@@ -1,9 +1,10 @@
-# buddy-pi —— 给 pi 加一个 Buddy 厂商（任意 OpenAI 兼容网关）
+# buddy-pi —— 在 pi 里接入任意 OpenAI 兼容网关
 
-一条命令装完，`/model` 里多一个 **Buddy** 厂商，用来接**任意 OpenAI 兼容网关**（默认 `http://127.0.0.1:7863/v1`）。
+一个 pi 扩展：用命令**新增/管理自定义模型供应商**（名字、网关地址、API Key 全部自己填），不用手写配置、不用改代码。
 
-- **pi 自带的官方厂商（DeepSeek、OpenAI…）一点不动**，照常走各自官方地址；
-- 仓库里**不含任何密钥**，地址也不写死：用环境变量或 `~/.pi/agent/buddy.json` 配。
+- pi 自带的官方厂商（DeepSeek、OpenAI…）**一点不动**，照常走各自官方地址；
+- 代码里**零硬编码**：没有默认密钥，也没有写死的网关地址；
+- 支持**多套网关并存**，每套一个名字。
 
 ---
 
@@ -13,7 +14,7 @@
 pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi
 ```
 
-github 的 https 连不上（国内常见）：
+github 的 https 连不上时：
 
 ```bash
 GIT_CONFIG_COUNT=1 \
@@ -22,77 +23,89 @@ GIT_CONFIG_VALUE_0='https://github.com/' \
 pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi
 ```
 
-完全访问不到 github：把 `index.ts` 拷到 `~/.pi/agent/extensions/buddy.ts`。
+装完重启 pi（或 `/reload`）。此时还没有任何供应商——用下面的命令添加。
 
-## 配置
+## 添加供应商
 
-**1）网关地址**
+进 pi，输入：
 
-```bash
-export BUDDY_BASE_URL=http://你的网关:7863/v1     # 结尾必须 /v1
+```
+/buddy add
 ```
 
-或用配置文件 `~/.pi/agent/buddy.json`：
+依次填写：**名称**（如 `work`，pi 里会显示为 `buddy-work`）→ **网关地址**（结尾 `/v1`）→ **API Key**。
+插件会自动请求 `<地址>/models` 拉取模型清单并保存、**立刻注册**（不用重启）。
 
-```json
-{ "baseUrl": "http://你的网关:7863/v1" }
+非交互式（脚本/批量）：
+
+```
+/buddy add work http://10.0.0.5:7863/v1 sk-wb-xxxx
 ```
 
-**2）API 密钥**（`auth.json` 里的 `buddy` 条目 > 环境变量 > `buddy.json`）
+## 其他命令
 
-```bash
-export BUDDY_API_KEY=sk-xxx
-```
-
-或写进 `~/.pi/agent/buddy.json`（和 baseUrl 放一起）：
-
-```json
-{ "baseUrl": "http://你的网关:7863/v1", "apiKey": "sk-xxx" }
-```
-
-> 没有配置密钥时，Buddy 的模型**不会出现在 `/model` 里**（pi 的既有行为：未配置凭据的厂商隐藏）。
-> 扩展形态不参与 pi 的 `/login`；想用 `/login` 填 key 请看本仓库的 `pi-fork` 分支（pi 源码定制版）。
-
-## 验证
-
-```bash
-pi --list-models | grep '^buddy'                    # 应列出模型
-pi --model buddy/deepseek-v4.1-flash "只回复两个字：可用"
-```
+| 命令 | 作用 |
+|---|---|
+| `/buddy` | 菜单：添加 / 列出 / 测试 / 删除 |
+| `/buddy list` | 列出已配置的供应商（key 以掩码显示） |
+| `/buddy test work` | 请求一次该网关的 `/models`，验证地址与 key |
+| `/buddy remove work` | 删除该供应商并注销 |
 
 ## 使用
 
+```
+/model                     # 选 buddy-work 下的模型（Ctrl+S 设为默认）
+```
+
+或命令行直指定：
+
 ```bash
-pi                                  # 进交互界面 → /model（Ctrl+L）→ Buddy → 选模型
-pi --model buddy/glm-5.3-flash      # 或直接指定
+pi --model buddy-work/deepseek-v4.1-flash
 ```
 
-首次加载且已配置密钥时，插件会把 Buddy 设为默认模型（只做一次，之后尊重你在 `/model` 里的选择；标记文件 `~/.pi/agent/.buddy-default-set`）。
+## 配置文件（可手改）
 
-## 换模型清单
+`~/.pi/agent/buddy.json`（权限 600）：
 
-`index.ts` 里的 `MODELS` 数组，每条形如：
-
-```ts
-{ id: "glm-5.3", contextWindow: 1000000, maxTokens: 131072 }
+```json
+{
+  "version": 2,
+  "providers": {
+    "work": {
+      "name": "work",
+      "baseUrl": "http://10.0.0.5:7863/v1",
+      "apiKey": "sk-wb-…",
+      "models": [{ "id": "deepseek-v4.1-flash", "contextWindow": 1000000, "maxTokens": 393216 }]
+    }
+  }
+}
 ```
 
-`contextWindow` / `maxTokens` 取网关 `GET /v1/models` 返回的 `context_length` / `max_output_tokens`。
-改完 push，使用者执行 `pi update --extensions`。
+> 旧的单供应商格式 `{ "baseUrl": "...", "apiKey": "..." }` 会被自动识别为名为 `default` 的供应商。
+
+## 一键脚本（服务器/批量）
+
+```bash
+bash install.sh <apiKey> [baseUrl] [名字]
+# 例：bash install.sh sk-wb-xxxx http://10.0.0.5:7863/v1 work
+```
+
+脚本 = `pi install` + `/buddy add` + 自检。
 
 ## 排障
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `/model` 里没有 Buddy | 没配密钥（厂商被隐藏）或插件没加载 | 配 `BUDDY_API_KEY`/`buddy.json`；`pi list` 确认已装；重启 pi 或 `/reload` |
-| `401 {"error":{"message":"missing or invalid API key",…}}` | 到网关但 key 无效 | 换有效 key |
-| `Authentication Fails, Your api key: ****xxxx is invalid`（带 request_id） | 打到上游官方 API 了，不是你的网关 | 检查 `BUDDY_BASE_URL` |
-| 超时 / refused | 网关没起 / 不同网段 / 防火墙 | `curl -sS -m 5 <baseUrl 去掉 /v1>/healthz` |
-| `404` | 地址少了 `/v1` | `BUDDY_BASE_URL` 必须以 `/v1` 结尾 |
+| `/model` 里没有 `buddy-*` | 还没添加供应商 / 插件没加载 | `/buddy list` 看；`/buddy add` 添加；`pi list` 确认插件已装 |
+| `/buddy add` 报 `拉取失败：HTTP 401` | key 无效 | 换有效 key 再添加 |
+| `/buddy add` 报 `HTTP 404` | 地址不对 | 地址以 `/v1` 结尾（插件会自动补 `/v1`，但别写成 `/v1/chat/completions` 之类） |
+| 连接超时 | 网关没起 / 网络不通 / 防火墙 | `curl -sS -m 5 <地址去掉 /v1>/healthz` |
+| 提问报 `401 invalid_api_key` | 网关不认识这把 key | 检查面板里该 key 是否启用 |
+| 想换 key/地址 | 再次 `/buddy add work <新地址> <新key>`（会问是否覆盖） | 或直接编辑 `buddy.json` |
 
 ## 更新 / 卸载
 
 ```bash
-pi update --extensions
-pi remove workbuddy-pi
+pi update --extensions        # 更新插件
+pi remove workbuddy-pi        # 卸载（供应商配置保留在 buddy.json，可自行删除）
 ```
