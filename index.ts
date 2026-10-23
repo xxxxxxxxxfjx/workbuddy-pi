@@ -17,6 +17,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 /** 反代根地址：/v1 结尾（OpenAI 兼容协议）。 */
 const BASE_URL = process.env.WB2API_BASE_URL ?? "http://172.16.64.108:7863/v1";
 
+/**
+ * 密钥来源有两种，任选其一（pi 的 auth.json 优先于环境变量）：
+ *   1) ~/.pi/agent/auth.json 里 `"wb2api": { "type": "api_key", "key": "sk-wb-…" }`（推荐，不依赖 shell）
+ *   2) 环境变量 WB2API_API_KEY
+ * 有环境变量时用它；没有就不写 apiKey，交给 auth.json 解析。
+ */
+const API_KEY = process.env.WB2API_API_KEY?.trim();
+
 /** 反代 /v1/models 下发的模型（contextWindow / maxTokens 取自上游声明）。 */
 const MODELS: Array<{ id: string; contextWindow: number; maxTokens: number }> = [
   { id: "hy3", contextWindow: 192000, maxTokens: 64000 },
@@ -43,8 +51,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("wb2api", {
     name: "WatchBuddy2API",
     baseUrl: BASE_URL,
-    // "$WB2API_API_KEY" 由 pi 在请求时从环境变量解析，密钥不落进任何文件
-    apiKey: "$WB2API_API_KEY",
+    // 只有真的设了环境变量才写 apiKey；否则省略，让 pi 去 auth.json 里找
+    ...(API_KEY ? { apiKey: API_KEY } : {}),
     api: "openai-completions",
     // 反代是 OpenAI 兼容层，不需要 developer 角色 / reasoning_effort，输出上限用 max_tokens
     compat: {
