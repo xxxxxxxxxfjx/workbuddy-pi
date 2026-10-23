@@ -1,19 +1,16 @@
 /**
  * Buddy → pi 的模型提供商（provider id: `buddy`）
  *
- * 只做一件事：把 WatchBuddy2API 反代注册成一个**独立的厂商 `buddy`**。
- * 不碰 pi 内置的 deepseek / openai 等官方厂商，它们照常走官方地址。
+ * 插件自带反代地址与密钥，装完重启 pi 即可用：`/model` → Buddy → 选模型。
+ * 不碰 pi 内置的 deepseek / openai 等官方厂商（它们照常走官方地址）。
  *
  * 安装：`pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi`
  *       （或把本文件放进 ~/.pi/agent/extensions/buddy.ts）
  *
- * 地址与密钥的取值顺序：
+ * 想换地址/换 key 时不用改代码，按优先级覆盖：
  *   1) 环境变量 BUDDY_BASE_URL / BUDDY_API_KEY
- *   2) 配置文件 ~/.pi/agent/buddy.json（install.sh 会写）
- *         { "baseUrl": "http://172.16.64.108:7863/v1", "apiKey": "sk-wb-…" }
- *   3) 内置默认地址；key 没有则交给 pi 的 auth.json 里的 `buddy` 条目
- *
- * 拿到 key 后模型才会出现在 /model 里（pi 隐藏未配置凭据的厂商）。
+ *   2) 配置文件 ~/.pi/agent/buddy.json  { "baseUrl": "...", "apiKey": "..." }
+ *   3) 下面内置的默认值
  */
 
 import { readFileSync } from "node:fs";
@@ -22,7 +19,16 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER_ID = "buddy";
+
+/** 内置默认：反代地址（结尾 /v1） */
 const DEFAULT_BASE_URL = "http://172.16.64.108:7863/v1";
+
+/**
+ * 内置默认密钥（面板签发的分发 key）。
+ * 这是公开仓库里的明文 key，提供者可在面板「密钥」页随时停用/轮换；
+ * 使用者也可以用 BUDDY_API_KEY 或 buddy.json 换成自己的一把。
+ */
+const DEFAULT_API_KEY = "sk-wb-a341ac4c6b9ef2ca03d957c62e18e23d2d14ceb8";
 
 /** 读取 ~/.pi/agent/buddy.json（不存在/损坏都当没有）。 */
 function readLocalConfig(): { baseUrl?: string; apiKey?: string } {
@@ -40,7 +46,7 @@ function readLocalConfig(): { baseUrl?: string; apiKey?: string } {
 
 const local = readLocalConfig();
 const BASE_URL = process.env.BUDDY_BASE_URL?.trim() || local.baseUrl || DEFAULT_BASE_URL;
-const API_KEY = process.env.BUDDY_API_KEY?.trim() || local.apiKey;
+const API_KEY = process.env.BUDDY_API_KEY?.trim() || local.apiKey || DEFAULT_API_KEY;
 
 /** 反代 /v1/models 下发的模型（contextWindow / maxTokens 取自上游声明）。 */
 const MODELS: Array<{ id: string; contextWindow: number; maxTokens: number }> = [
@@ -68,7 +74,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider(PROVIDER_ID, {
     name: "Buddy",
     baseUrl: BASE_URL,
-    ...(API_KEY ? { apiKey: API_KEY } : {}),
+    apiKey: API_KEY,
     api: "openai-completions",
     compat: {
       supportsDeveloperRole: false,
