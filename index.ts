@@ -1,29 +1,43 @@
 /**
  * WatchBuddy2API → pi 模型提供商（provider id: `wb2api`）
  *
- * 用法：把本文件放进 `C:\Users\<你>\.pi\agent\extensions\` 即生效（pi 自动发现），
- * 或在 pi 启动时 `pi -e 路径\wb2api-pi.ts`。
+ * 安装：`pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi`
+ *       （或把本文件放进 ~/.pi/agent/extensions/wb2api-pi.ts）
  *
- * 需要的环境变量：
- *   WB2API_API_KEY   （必填）反代的密钥：面板签发的 sk-wb-… 或提供者的 config.json api_key
- *   WB2API_BASE_URL  （可选）反代地址，默认 http://172.16.64.108:7863/v1
+ * 密钥与地址的三个来源，优先级从高到低：
+ *   1) 环境变量 WB2API_BASE_URL / WB2API_API_KEY
+ *   2) 配置文件 ~/.pi/agent/wb2api.json（install.sh 会自动写这个文件）
+ *         { "baseUrl": "http://172.16.64.108:7863/v1", "apiKey": "sk-wb-…" }
+ *   3) 内置默认：baseUrl = http://172.16.64.108:7863/v1；key 交给 pi 的 auth.json
  *
- * 之后在 pi 里：/model（或 Ctrl+L）→ 选 wb2api 下的模型；也可直接
- *   pi --model wb2api/deepseek-v4.1-flash
+ * 只要拿到 key（1 或 2），模型就会出现在 /model 里；否则 pi 会把它们隐藏。
  */
 
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** 反代根地址：/v1 结尾（OpenAI 兼容协议）。 */
-const BASE_URL = process.env.WB2API_BASE_URL ?? "http://172.16.64.108:7863/v1";
+const DEFAULT_BASE_URL = "http://172.16.64.108:7863/v1";
 
-/**
- * 密钥来源有两种，任选其一（pi 的 auth.json 优先于环境变量）：
- *   1) ~/.pi/agent/auth.json 里 `"wb2api": { "type": "api_key", "key": "sk-wb-…" }`（推荐，不依赖 shell）
- *   2) 环境变量 WB2API_API_KEY
- * 有环境变量时用它；没有就不写 apiKey，交给 auth.json 解析。
- */
-const API_KEY = process.env.WB2API_API_KEY?.trim();
+/** 读取 ~/.pi/agent/wb2api.json（不存在或损坏都当没有）。 */
+function readLocalConfig(): { baseUrl?: string; apiKey?: string } {
+  try {
+    const agentDir = process.env.WB2API_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+    const raw = readFileSync(join(agentDir, "wb2api.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : undefined,
+      apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+const local = readLocalConfig();
+const BASE_URL = process.env.WB2API_BASE_URL?.trim() || local.baseUrl || DEFAULT_BASE_URL;
+const API_KEY = process.env.WB2API_API_KEY?.trim() || local.apiKey;
 
 /** 反代 /v1/models 下发的模型（contextWindow / maxTokens 取自上游声明）。 */
 const MODELS: Array<{ id: string; contextWindow: number; maxTokens: number }> = [
@@ -51,10 +65,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("wb2api", {
     name: "WatchBuddy2API",
     baseUrl: BASE_URL,
-    // 只有真的设了环境变量才写 apiKey；否则省略，让 pi 去 auth.json 里找
+    // 有 key 就带上（模型才会出现在 /model 里）；没有则留给 pi 的 auth.json
     ...(API_KEY ? { apiKey: API_KEY } : {}),
     api: "openai-completions",
-    // 反代是 OpenAI 兼容层，不需要 developer 角色 / reasoning_effort，输出上限用 max_tokens
+    // 反代是 OpenAI 兼容层：不需要 developer 角色与 reasoning_effort，输出上限用 max_tokens
     compat: {
       supportsDeveloperRole: false,
       supportsReasoningEffort: false,
