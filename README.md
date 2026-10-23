@@ -1,103 +1,98 @@
-# buddy-pi —— 给 pi 加一个 Buddy 厂商（WatchBuddy2API 反代）
+# buddy-pi —— 给 pi 加一个 Buddy 厂商（任意 OpenAI 兼容网关）
 
-一条命令装完，重启 pi 就能用。**pi 自带的官方厂商（DeepSeek、OpenAI…）一点不动**，照常走官方地址。
+一条命令装完，`/model` 里多一个 **Buddy** 厂商，用来接**任意 OpenAI 兼容网关**（默认 `http://127.0.0.1:7863/v1`）。
 
-```bash
-pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi
-# 重启 pi  →  /model 里出现 Buddy → 选一个模型 → 直接提问
-```
-
-插件自己带着反代地址和密钥，**不需要额外配置文件、不需要 `/login`、不需要设环境变量**。
+- **pi 自带的官方厂商（DeepSeek、OpenAI…）一点不动**，照常走各自官方地址；
+- 仓库里**不含任何密钥**，地址也不写死：用环境变量或 `~/.pi/agent/buddy.json` 配。
 
 ---
 
 ## 安装
 
 ```bash
-# 正常情况
 pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi
+```
 
-# 如果 github 的 https 连不上（国内常见）
+github 的 https 连不上（国内常见）：
+
+```bash
 GIT_CONFIG_COUNT=1 \
 GIT_CONFIG_KEY_0='url.ssh://git@github.com/.insteadOf' \
 GIT_CONFIG_VALUE_0='https://github.com/' \
 pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi
-
-# 如果服务器完全访问不到 github：把 index.ts 拷进扩展目录
-mkdir -p ~/.pi/agent/extensions && cp index.ts ~/.pi/agent/extensions/buddy.ts
 ```
 
-装完**重启 pi**（或在 pi 里 `/reload`），然后直接对话即可——**第一次启动插件会自动把默认模型设为 Buddy**（`buddy/deepseek-v4.1-flash`，只设一次，之后你在 `/model` 里的选择优先）。
+完全访问不到 github：把 `index.ts` 拷到 `~/.pi/agent/extensions/buddy.ts`。
 
-想手动切换：
+## 配置
 
-```
-/model  →  Buddy → deepseek-v4.1-flash      （Ctrl+S 可设为默认）
-/model  →  deepseek → …                      （官方厂商，需官方 key）
-```
-
-验证（可选）：
+**1）网关地址**
 
 ```bash
-pi --list-models | grep '^buddy'            # 应列出 18 个模型
-pi --model buddy/deepseek-v4.1-flash "你好"
+export BUDDY_BASE_URL=http://你的网关:7863/v1     # 结尾必须 /v1
 ```
 
-## 换地址 / 换密钥（可选）
-
-插件内置的默认值够用；要覆盖就按下面优先级（高的优先）：
-
-1. 环境变量
-
-```bash
-export BUDDY_BASE_URL=http://反代地址:7863/v1
-export BUDDY_API_KEY=sk-wb-你自己的key
-```
-
-2. 配置文件 `~/.pi/agent/buddy.json`
+或用配置文件 `~/.pi/agent/buddy.json`：
 
 ```json
-{ "baseUrl": "http://反代地址:7863/v1", "apiKey": "sk-wb-你自己的key" }
+{ "baseUrl": "http://你的网关:7863/v1" }
 ```
 
-3. 插件内置默认值（`index.ts` 里的 `DEFAULT_BASE_URL` / `DEFAULT_API_KEY`）
-
-> 地址结尾必须是 `/v1`。
-
-## 网络前提
-
-内置地址是提供者的局域网地址，先确认能连通：
+**2）API 密钥**（`auth.json` 里的 `buddy` 条目 > 环境变量 > `buddy.json`）
 
 ```bash
-curl -sS -m 5 http://172.16.64.108:7863/healthz ; echo
-# 有 {"healthy":N,...} 才算通；超时 = 不同网段 / 防火墙没放行
+export BUDDY_API_KEY=sk-xxx
 ```
 
-跨网络用时让提供者用 Cloudflare Tunnel / frp 暴露，再设 `BUDDY_BASE_URL=https://域名/v1`。
+或写进 `~/.pi/agent/buddy.json`（和 baseUrl 放一起）：
 
-## ⚠️ 不要把反代 key 填进 `/login`
-
-`/login` 是给**官方厂商**用的。填进 DeepSeek 的 `/login` 会被当成 `api.deepseek.com` 的凭据，提问就报：
-
-```
-401 Authentication Fails, Your api key: ****xxxx is invalid
+```json
+{ "baseUrl": "http://你的网关:7863/v1", "apiKey": "sk-xxx" }
 ```
 
-本插件只用 `buddy` 这个新厂商，与 `/login` 无关。
+> 没有配置密钥时，Buddy 的模型**不会出现在 `/model` 里**（pi 的既有行为：未配置凭据的厂商隐藏）。
+> 扩展形态不参与 pi 的 `/login`；想用 `/login` 填 key 请看本仓库的 `pi-fork` 分支（pi 源码定制版）。
+
+## 验证
+
+```bash
+pi --list-models | grep '^buddy'                    # 应列出模型
+pi --model buddy/deepseek-v4.1-flash "只回复两个字：可用"
+```
+
+## 使用
+
+```bash
+pi                                  # 进交互界面 → /model（Ctrl+L）→ Buddy → 选模型
+pi --model buddy/glm-5.3-flash      # 或直接指定
+```
+
+首次加载且已配置密钥时，插件会把 Buddy 设为默认模型（只做一次，之后尊重你在 `/model` 里的选择；标记文件 `~/.pi/agent/.buddy-default-set`）。
+
+## 换模型清单
+
+`index.ts` 里的 `MODELS` 数组，每条形如：
+
+```ts
+{ id: "glm-5.3", contextWindow: 1000000, maxTokens: 131072 }
+```
+
+`contextWindow` / `maxTokens` 取网关 `GET /v1/models` 返回的 `context_length` / `max_output_tokens`。
+改完 push，使用者执行 `pi update --extensions`。
 
 ## 排障
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `/model` 里没有 Buddy | 插件没加载 | `pi list` 看是否装上；重启 pi 或 `/reload`；也可改用拷贝 `index.ts` 的方式 |
-| `401 {"error":{"message":"missing or invalid API key",...}}` | 到反代了，内置 key 被停用/轮换过 | 找提供者要新 key，用 `BUDDY_API_KEY` 或 `buddy.json` 覆盖 |
-| `Authentication Fails, Your api key: ****xxxx is invalid`（带 request_id） | 打到 DeepSeek 官方了 | 检查 `BUDDY_BASE_URL`，别用 `/login` 配 |
-| 超时 / refused | 反代没起 / 不同网段 / 防火墙 | 用上面的 curl 测 |
+| `/model` 里没有 Buddy | 没配密钥（厂商被隐藏）或插件没加载 | 配 `BUDDY_API_KEY`/`buddy.json`；`pi list` 确认已装；重启 pi 或 `/reload` |
+| `401 {"error":{"message":"missing or invalid API key",…}}` | 到网关但 key 无效 | 换有效 key |
+| `Authentication Fails, Your api key: ****xxxx is invalid`（带 request_id） | 打到上游官方 API 了，不是你的网关 | 检查 `BUDDY_BASE_URL` |
+| 超时 / refused | 网关没起 / 不同网段 / 防火墙 | `curl -sS -m 5 <baseUrl 去掉 /v1>/healthz` |
 | `404` | 地址少了 `/v1` | `BUDDY_BASE_URL` 必须以 `/v1` 结尾 |
 
 ## 更新 / 卸载
 
 ```bash
-pi update --extensions      # 更新插件（模型清单变化也走这个）
-pi remove workbuddy-pi      # 卸载（包名以 pi list 显示为准）
+pi update --extensions
+pi remove workbuddy-pi
 ```
