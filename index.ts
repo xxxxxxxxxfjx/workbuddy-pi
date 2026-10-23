@@ -13,12 +13,34 @@
  *   3) 下面内置的默认值
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER_ID = "buddy";
+const DEFAULT_MODEL = "deepseek-v4.1-flash";
+
+/** 是否已经把 Buddy 设成过默认模型（只做一次，之后尊重用户自己的选择）。 */
+const AGENT_DIR = process.env.BUDDY_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+const SET_DEFAULT_MARKER = join(AGENT_DIR, ".buddy-default-set");
+
+/**
+ * 把 Buddy 写进 settings.json 的默认模型（pi.setModel 只改当前会话，不落盘）。
+ * 只改 defaultProvider / defaultModel 两个字段，其余原样保留。
+ */
+function persistDefaultModel(): void {
+  try {
+    const file = join(AGENT_DIR, "settings.json");
+    const settings = JSON.parse(readFileSync(file, "utf8"));
+    if (settings.defaultProvider === PROVIDER_ID && settings.defaultModel === DEFAULT_MODEL) return;
+    settings.defaultProvider = PROVIDER_ID;
+    settings.defaultModel = DEFAULT_MODEL;
+    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+  } catch {
+    // 写不进去也不影响本会话已切好的模型
+  }
+}
 
 /** 内置默认：反代地址（结尾 /v1） */
 const DEFAULT_BASE_URL = "http://172.16.64.108:7863/v1";
@@ -90,5 +112,30 @@ export default function (pi: ExtensionAPI) {
       contextWindow: m.contextWindow,
       maxTokens: m.maxTokens,
     })),
+  });
+
+  /**
+   * 首次加载时把 Buddy 设为默认模型（只做一次，之后尊重你在 /model 里的选择）。
+   * 这样可以「装完 → 重启 → 直接对话」就走反代，不用每次手动选模型。
+   */
+  pi.on("session_start", async (_event, ctx) => {
+    if (existsSync(SET_DEFAULT_MARKER)) return;
+    try {
+      const current = ctx.model as { provider?: string } | undefined;
+      if (current?.provider === PROVIDER_ID) {
+        writeFileSync(SET_DEFAULT_MARKER, new Date().toISOString());
+        return;
+      }
+      const registry = ctx.modelRegistry as { find?: (p: string, m: string) => unknown } | undefined;
+      const model = registry?.find?.(PROVIDER_ID, DEFAULT_MODEL);
+      if (!model) return;
+      const ok = await pi.setModel(model as never);
+      if (ok) {
+        persistDefaultModel();
+        writeFileSync(SET_DEFAULT_MARKER, new Date().toISOString());
+      }
+    } catch {
+      // 设默认模型失败不影响插件本身可用（手动 /model 选即可）
+    }
   });
 }

@@ -27,10 +27,13 @@ pi install git:github.com:xxxxxxxxxfjx/workbuddy-pi
 mkdir -p ~/.pi/agent/extensions && cp index.ts ~/.pi/agent/extensions/buddy.ts
 ```
 
-装完**重启 pi**（或在 pi 里 `/reload`），然后：
+装完**重启 pi**（或在 pi 里 `/reload`），然后直接对话即可——**第一次启动插件会自动把默认模型设为 Buddy**（`buddy/deepseek-v4.1-flash`，只设一次，之后你在 `/model` 里的选择优先）。
+
+想手动切换：
 
 ```
-/model  →  Buddy → deepseek-v4.1-flash
+/model  →  Buddy → deepseek-v4.1-flash      （Ctrl+S 可设为默认）
+/model  →  deepseek → …                      （官方厂商，需官方 key）
 ```
 
 验证（可选）：
